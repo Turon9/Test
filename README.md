@@ -1,43 +1,26 @@
-# DTF Placer
-
-A static, camera-based tool for lining up DTF designs on shirts. Open it on a phone, point the camera at the shirt, and a highlighted cutout shows where the design will land.
-
-## Features
-
-- Live camera overlay (works on iPhone Safari and Android Chrome)
-- Upload artwork (PNG recommended) or use a plain rectangle
-- Drag to move, pinch to resize, twist to rotate
-- Preset positions: center chest, left/right chest, upper back, full front
-- Distance from collar, offset from center, and tilt readouts you can also type in
-- Grid, collar line and center line
-- Freeze frame (steady the view while adjusting), or use a photo of the shirt
-- Save or share a screenshot
-- cm / inch units
-
-## Scale calibration
-
-Browsers on iPhone can't measure real distances, so the scale is set by you:
-
-1. Tap **Calibrate**.
-2. Tap two points a known distance apart, such as the shirt width edge to edge or a ruler laid on the shirt.
-3. Enter the real distance and tap **Apply**.
-
-Keep the phone at about the same distance and angle from the shirt afterwards. If you move closer or farther, recalibrate. Holding the phone parallel to the shirt gives the best accuracy.
-
-## Collar and center
-
-Tap **Collar / center** and touch the shirt: the horizontal line marks the collar seam and the vertical line marks the shirt center. All distances are measured from these.
-
-## Deploy on GitHub Pages
-
-1. Create a new GitHub repository and upload `index.html`, `style.css`, `app.js` and `README.md` to the root.
-2. Go to **Settings > Pages**.
-3. Under **Build and deployment**, choose **Deploy from a branch**, select `main` and `/ (root)`, then Save.
-4. After a minute, your site is live at `https://<username>.github.io/<repo>/`.
-
-Camera access needs HTTPS, which GitHub Pages provides. Opening `index.html` directly from a file will not allow the camera, but the photo option still works.
-
-## Notes
-
-- iPhone Safari does not support WebXR AR, so this uses a camera overlay instead of surface-tracked AR.
-- Placement presets are common starting values (for example, center chest about 8 cm below the collar). Edit them in `PRESETS` at the top of `app.js`.
+DTF Studio — Flat-Garment Alignment
+A mobile-first, browser-based tool for aligning physical DTF transfers on garments laid flat under an overhead phone camera.
+Current workflow
+Serve the files over HTTPS (camera permissions generally require a secure context).
+Start the camera or choose a shirt photo.
+For a repeatable overhead setup, tap Capture shirt guide. The app sends a captured frame to the online background-removal model and displays the result as a translucent ghost overlay. Align the live garment with that guide to repeat camera position and height. Use a contrasting table and even lighting for best results.
+Tap Set collar & center anchor, tap the collar center, then tap the shirt centerline at collar height. Select a placement preset and adjust the design as needed.
+Use Tracking on / Lock position to toggle lightweight live patch tracking. The tracker follows small image movements near the anchor; if the fabric is plain, lighting changes, or tracking confidence drops, re-mark the anchor or lock the position.
+Upload artwork, optionally remove its background, and export a transparent PNG at a chosen physical width and target DPI.
+Placement and camera reference notes
+The translucent shirt cutout is a visual camera-position reference, not a metric depth sensor. It helps repeat framing and camera height by matching the live shirt to a captured silhouette.
+The cutout uses an online background-removal model. Results depend on shirt/table contrast; the model may isolate more or less than the garment. Recapture or use manual collar/center alignment if it fails.
+The live anchor tracker is a lightweight local grayscale patch matcher with brightness-normalized matching and a wider recovery search. It follows small translations around the manually marked collar/center anchor; it is not a robust full-garment segmentation or perspective-tracking system. Plain fabric, wrinkles, rotation, large camera movement, and changing shadows can still cause drift. If confidence drops, align the live shirt to the fixed ghost reference or re-mark the anchor.
+For best repeatability, mount the phone overhead, keep it parallel to the table, use steady lighting, flatten the garment, and keep the collar visible.
+The visual placement preview is not a guarantee of millimeter accuracy. Verify with a ruler before pressing.
+The export creates the selected pixel dimensions based on physical width and DPI target. Browsers do not consistently write DPI metadata to PNG, so confirm size in your print software.
+Files
+`index.html` — responsive interface
+`style.css` — minimalist iOS-inspired UI
+`app.js` — camera/photo workflow, shirt guide, anchor tracking, artwork editing, and export
+Deploy with GitHub Pages
+Upload all project files to the root of a repository.
+Open Settings → Pages.
+Select Deploy from a branch, choose `main` and `/ (root)`, then save.
+Open the generated HTTPS URL on the phone and grant camera permission.
+The first use of automatic cutout/background removal needs an internet connection to load the model. Camera and basic manual placement can work without that model after the page is loaded.
