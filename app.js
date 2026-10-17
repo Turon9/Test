@@ -47,44 +47,47 @@ $('captureGuide').addEventListener('click',async()=>{const source=bg();if(!sourc
 $('toggleGuide').addEventListener('click',()=>{if(!S.referenceCutout)return;S.showReference=!S.showReference;$('toggleGuide').textContent=S.showReference?'Hide guide':'Show guide';$('guideStatus').textContent=S.showReference?'Align the live shirt with the translucent captured cutout.':'Reference hidden. Collar/center tracking remains available.'});
 $('trackToggle').addEventListener('click',()=>{S.trackingActive=!S.trackingActive;$('trackToggle').textContent=S.trackingActive?'Tracking on':'Lock position';$('guideStatus').textContent=S.trackingActive?'Tracking enabled. Keep the collar seam visible; use the ghost cutout if tracking drifts.':'Tracking paused. The overlay is locked to its current screen position.';if(S.trackingActive&&!S.anchorSet)toast('Set the collar and center anchor first to start tracking.')});
 $('autoDetect').addEventListener('click',()=>{if(!bg())return toast('Start the camera or upload a shirt photo first.');S.setupStage=1;S.anchorSet=false;setMode('setup');$('autoDetect').textContent='Re-mark collar & center';toast('Tap the collar center, then tap the shirt centerline at collar height. The overlay will anchor to these points.');});
-// Lightweight image-patch tracking around the marked collar/center anchor. This can follow small
-// movements under a fixed overhead camera; smooth fabric can be ambiguous, so manual re-anchoring remains available.
-function captureTrackingTemplate(){
-  const source=bg();if(!source)return;
+// Robust grayscale-gradient patch tracking for a fixed overhead camera.
+// Normalized matching, coarse-to-fine search, peak uniqueness and conservative smoothing reduce drift.
+function trackingFrame(source){
   const tc=S.trackingCanvas,tctx=S.trackingCtx||(S.trackingCtx=tc.getContext('2d',{willReadFrequently:true}));
   tc.width=Math.max(1,Math.round(W*.5));tc.height=Math.max(1,Math.round(H*.5));
   const [sw,sh]=bgSize(source),k=Math.max(tc.width/sw,tc.height/sh),dw=sw*k,dh=sh*k;
   tctx.drawImage(source,(tc.width-dw)/2,(tc.height-dh)/2,dw,dh);
-  let data;try{data=tctx.getImageData(0,0,tc.width,tc.height).data}catch(e){toast('Tracking needs camera image access.');return}
-  const cx=Math.round(S.centerX*.5),cy=Math.round(S.collarY*.5),w=24,h=24,p=[];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const xx=clamp(Math.round(cx-w/2+x),0,tc.width-1),yy=clamp(Math.round(cy-h/2+y),0,tc.height-1),i=(yy*tc.width+xx)*4;p.push((data[i]*.299+data[i+1]*.587+data[i+2]*.114))}
-  const mean=p.reduce((a,b)=>a+b,0)/p.length,variance=p.reduce((a,b)=>a+(b-mean)*(b-mean),0)/p.length,sd=Math.sqrt(variance)||1;
-  S.trackingTemplate={p:p.map(v=>(v-mean)/sd),w,h,texture:sd};S.anchorSet=true;S.trackLost=false;S.trackConfidence=1;
-  if(sd<5)$('guideStatus').textContent='Anchor saved, but this area has little texture. Tracking works best around the collar seam, stitching, or a fabric edge.';
-  else $('guideStatus').textContent='Tracking anchor captured. Small shirt movements will be followed automatically; use the translucent cutout to restore the original framing.';
+  try{return {w:tc.width,h:tc.height,data:tctx.getImageData(0,0,tc.width,tc.height).data}}catch(e){return null}
+}
+function grayAt(f,x,y){const i=(clamp(Math.round(y),0,f.h-1)*f.w+clamp(Math.round(x),0,f.w-1))*4,d=f.data;return .299*d[i]+.587*d[i+1]+.114*d[i+2]}
+function makePatch(f,cx,cy,w=36,h=36){
+  const raw=new Float32Array(w*h);let sum=0,sum2=0,n=0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const gx=cx+(x-(w-1)/2),gy=cy+(y-(h-1)/2),v=grayAt(f,gx,gy),dx=grayAt(f,gx+1,gy)-grayAt(f,gx-1,gy),dy=grayAt(f,gx,gy+1)-grayAt(f,gx,gy-1),z=.35*v+.65*Math.hypot(dx,dy)*3;raw[n++]=z;sum+=z;sum2+=z*z}
+  const mean=sum/raw.length,sd=Math.sqrt(Math.max(1,sum2/raw.length-mean*mean));for(let i=0;i<raw.length;i++)raw[i]=(raw[i]-mean)/sd;return {p:raw,w,h,texture:sd};
+}
+function patchScore(f,t,cx,cy,stride=2){
+  let sum=0,sum2=0,n=0;
+  for(let y=0;y<t.h;y+=stride)for(let x=0;x<t.w;x+=stride){const gx=cx+(x-(t.w-1)/2),gy=cy+(y-(t.h-1)/2),v=grayAt(f,gx,gy),dx=grayAt(f,gx+1,gy)-grayAt(f,gx-1,gy),dy=grayAt(f,gx,gy+1)-grayAt(f,gx,gy-1),z=.35*v+.65*Math.hypot(dx,dy)*3;sum+=z;sum2+=z*z;n++}
+  const mean=sum/n,sd=Math.sqrt(Math.max(1,sum2/n-mean*mean));let err=0,j=0;
+  for(let y=0;y<t.h;y+=stride)for(let x=0;x<t.w;x+=stride){const gx=cx+(x-(t.w-1)/2),gy=cy+(y-(t.h-1)/2),v=grayAt(f,gx,gy),dx=grayAt(f,gx+1,gy)-grayAt(f,gx-1,gy),dy=grayAt(f,gx,gy+1)-grayAt(f,gx,gy-1),z=(.35*v+.65*Math.hypot(dx,dy)*3-mean)/sd;err+=Math.abs(z-t.p[y*t.w+x]);j++}
+  return err/j;
+}
+function captureTrackingTemplate(){
+  const source=bg();if(!source)return;const f=trackingFrame(source);if(!f){toast('Tracking needs camera image access.');return}
+  const t=makePatch(f,S.centerX*.5,S.collarY*.5,36,36);
+  if(t.texture<2){$('guideStatus').textContent='This anchor has too little visual detail. Mark near the collar seam, label, or stitching for more reliable tracking.';S.anchorSet=false;return}
+  S.trackingTemplate=t;S.anchorSet=true;S.trackLost=false;S.trackConfidence=1;S.trackPoint={x:S.centerX*.5,y:S.collarY*.5};S.trackVelocity={x:0,y:0};S.trackMisses=0;S.lastTrackAt=0;
+  $('guideStatus').textContent='Tracking anchor captured. Matching now uses local image gradients and confidence checks; use the ghost guide if tracking drops.';
 }
 function trackAnchor(source){
-  if(!source||!S.trackingTemplate||S.trackingTemplate.texture<5||performance.now()-S.lastTrackAt<140)return;
-  S.lastTrackAt=performance.now();
-  const tc=S.trackingCanvas,tctx=S.trackingCtx||(S.trackingCtx=tc.getContext('2d',{willReadFrequently:true}));
-  tc.width=Math.max(1,Math.round(W*.5));tc.height=Math.max(1,Math.round(H*.5));
-  const [sw,sh]=bgSize(source),k=Math.max(tc.width/sw,tc.height/sh),dw=sw*k,dh=sh*k;
-  tctx.drawImage(source,(tc.width-dw)/2,(tc.height-dh)/2,dw,dh);
-  let data;try{data=tctx.getImageData(0,0,tc.width,tc.height).data}catch(e){return}
-  const scale=.5,cx=Math.round(S.centerX*scale),cy=Math.round(S.collarY*scale),t=S.trackingTemplate,rad=Math.max(18,Math.min(42,Math.round(Math.min(W,H)*.055))),tw=t.w,th=t.h;
-  let best=Infinity,bx=cx,by=cy;
-  /* Mean-normalized grayscale matching is less sensitive to modest exposure changes than raw RGB difference. */
-  for(let yy=Math.max(th/2,cy-rad);yy<Math.min(tc.height-th/2,cy+rad);yy+=2){
-    for(let xx=Math.max(tw/2,cx-rad);xx<Math.min(tc.width-tw/2,cx+rad);xx+=2){
-      const vals=[];for(let py=0;py<th;py+=2)for(let px=0;px<tw;px+=2){const i=(Math.round(yy-th/2+py)*tc.width+Math.round(xx-tw/2+px))*4;vals.push(data[i]*.299+data[i+1]*.587+data[i+2]*.114)}
-      const mean=vals.reduce((a,b)=>a+b,0)/vals.length,variance=vals.reduce((a,b)=>a+(b-mean)*(b-mean),0)/vals.length,sd=Math.sqrt(variance)||1;let err=0;
-      let j=0;for(let py=0;py<th;py+=2)for(let px=0;px<tw;px+=2){const i=(Math.round(yy-th/2+py)*tc.width+Math.round(xx-tw/2+px))*4,v=data[i]*.299+data[i+1]*.587+data[i+2]*.114;err+=Math.abs((v-mean)/sd-t.p[py*tw+px])}
-      err/=vals.length;if(variance<9)err+=.25;if(err<best){best=err;bx=xx;by=yy}
-    }
-  }
-  S.trackConfidence=clamp(1-best/1.6,0,1);
-  if(S.trackConfidence>.42){const dx=(bx-cx)/scale,dy=(by-cy)/scale;const sx=dx*.72,sy=dy*.72;S.centerX+=sx;S.collarY+=sy;S.design.x+=sx;S.design.y+=sy;S.trackLost=false;if(performance.now()-S.lastTrackStatusAt>900){$('guideStatus').textContent='Tracking shirt anchor · '+Math.round(S.trackConfidence*100)+'% match. Keep the collar visible; the ghost cutout remains your original camera reference.';S.lastTrackStatusAt=performance.now()}}
-  else if(!S.trackLost&&performance.now()-S.lastTrackStatusAt>900){S.trackLost=true;$('guideStatus').textContent='Tracking confidence is low. The design is held in place; align the live shirt to the ghost guide or re-mark the collar and center.';S.lastTrackStatusAt=performance.now()}
+  if(!source||!S.trackingTemplate||performance.now()-S.lastTrackAt<85)return;S.lastTrackAt=performance.now();const f=trackingFrame(source);if(!f)return;
+  const scale=.5,t=S.trackingTemplate,point=S.trackPoint||{x:S.centerX*scale,y:S.collarY*scale},predX=point.x+(S.trackVelocity?.x||0),predY=point.y+(S.trackVelocity?.y||0),rad=Math.min(100,32+Math.min(S.trackMisses||0,4)*12);
+  let best={score:Infinity,x:predX,y:predY},second=Infinity;const minX=t.w/2+2,maxX=f.w-t.w/2-2,minY=t.h/2+2,maxY=f.h-t.h/2-2;
+  const scan=(cx,cy,r,step,stride)=>{for(let y=Math.max(minY,cy-r);y<=Math.min(maxY,cy+r);y+=step)for(let x=Math.max(minX,cx-r);x<=Math.min(maxX,cx+r);x+=step){const score=patchScore(f,t,x,y,stride);if(score<best.score){second=best.score;best={score,x,y}}else if(Math.hypot(x-best.x,y-best.y)>t.w*.65&&score<second)second=score}};
+  scan(predX,predY,rad,4,3);scan(best.x,best.y,5,1,2);let refined={...best};
+  for(const [dx,dy] of [[-.5,0],[.5,0],[0,-.5],[0,.5],[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]]){const x=best.x+dx,y=best.y+dy,score=patchScore(f,t,x,y,1);if(score<refined.score)refined={x,y,score}}
+  const uniqueness=Number.isFinite(second)?clamp((second-refined.score)/Math.max(.08,second),0,1):0,quality=clamp(1-refined.score/1.15,0,1);S.trackConfidence=quality*(.68+.32*uniqueness);
+  if(refined.score<.78&&quality>.25&&uniqueness>.025){const dx=(refined.x-point.x)/scale,dy=(refined.y-point.y)/scale,jump=Math.hypot(dx,dy);if(jump<Math.min(120,rad/scale+24)){
+    const alpha=S.trackMisses?.48:.34,sx=dx*alpha,sy=dy*alpha;S.centerX+=sx;S.collarY+=sy;S.design.x+=sx;S.design.y+=sy;S.trackVelocity={x:(refined.x-point.x)*.25,y:(refined.y-point.y)*.25};S.trackPoint={x:point.x+(refined.x-point.x)*alpha,y:point.y+(refined.y-point.y)*alpha};S.trackMisses=0;S.trackLost=false;
+    if(performance.now()-S.lastTrackStatusAt>900){$('guideStatus').textContent='Tracking shirt anchor · '+Math.round(S.trackConfidence*100)+'% confidence. Keep collar detail visible; the original ghost guide is available for recovery.';S.lastTrackStatusAt=performance.now()}
+  }else S.trackMisses=(S.trackMisses||0)+1}else{S.trackMisses=(S.trackMisses||0)+1;S.trackVelocity={x:(S.trackVelocity?.x||0)*.35,y:(S.trackVelocity?.y||0)*.35};if(!S.trackLost&&performance.now()-S.lastTrackStatusAt>700){S.trackLost=true;$('guideStatus').textContent='Tracking uncertain — overlay held steady to prevent a false jump. Align to the ghost guide or re-mark the collar anchor.';S.lastTrackStatusAt=performance.now()}}
 }
 // Manual erase/restore edits operate on a full-resolution editable artwork canvas.
 function drawEditor(){if(!S.design.original)return;const im=S.design.original;editor.width=im.naturalWidth;editor.height=im.naturalHeight;ectx.clearRect(0,0,editor.width,editor.height);ectx.drawImage(S.design.img||im,0,0);S.editBase=ectx.getImageData(0,0,editor.width,editor.height);}
