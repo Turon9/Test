@@ -34,7 +34,66 @@ const ptrs=new Map();let gest=null;const pos=e=>{const r=canvas.getBoundingClien
 function rebase(){const pts=[...ptrs.values()],d=S.design;if(S.placementLocked){gest=null;return}if(pts.length===1)gest={type:'drag',dx:d.x-pts[0].x,dy:d.y-pts[0].y};else if(pts.length>=2){const[a,b]=pts;gest={type:'pinch',dist:Math.hypot(b.x-a.x,b.y-a.y)||1,ang:Math.atan2(b.y-a.y,b.x-a.x),w:d.wCm,h:d.hCm,rot:d.rot,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,x:d.x,y:d.y}}else gest=null}
 function moveGesture(){const pts=[...ptrs.values()],d=S.design;if(S.placementLocked||!gest)return;if(gest.type==='drag'&&pts.length===1){d.x=pts[0].x+gest.dx;d.y=pts[0].y+gest.dy}else if(gest.type==='pinch'&&pts.length>=2){const[a,b]=pts,k=(Math.hypot(b.x-a.x,b.y-a.y)||1)/gest.dist,ang=Math.atan2(b.y-a.y,b.x-a.x),kk=clamp(k,.05,20);d.wCm=clamp(gest.w*kk,.5,150);d.hCm=clamp(gest.h*kk,.5,150);d.rot=gest.rot+ang-gest.ang;d.x=gest.x+(a.x+b.x)/2-gest.mx;d.y=gest.y+(a.y+b.y)/2-gest.my}}
 function calTap(p){if(S.calPts.length<2){S.calPts.push(p);S.calIdx=S.calPts.length-1}else{let best=0,bd=Infinity;S.calPts.forEach((q,i)=>{let dd=Math.hypot(q.x-p.x,q.y-p.y);if(dd<bd){bd=dd;best=i}});S.calPts[best]=p;S.calIdx=best}}
-canvas.addEventListener('pointerdown',e=>{e.preventDefault();canvas.setPointerCapture(e.pointerId);const p=pos(e);ptrs.set(e.pointerId,p);if(S.mode==='move')rebase();else if(S.mode==='setup'){if(S.setupStage===1){S.collarY=p.y;S.setupStage=2;toast('Collar marked. Now tap the shirt centerline at collar height.')}else{S.centerX=p.x;S.setupStage=0;captureTrackingTemplate();const pp=PRESETS.find(q=>q.id===$('presetSelect').value)||PRESETS[0];applyPreset(pp);$('guideStatus').textContent='Collar/center anchor set. Small shirt movements can now be tracked; re-mark if confidence drops.';toast('Anchor set. The design is positioned relative to your shirt.')}}else if(S.mode==='calibrate')calTap(p)});canvas.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const p=pos(e);ptrs.set(e.pointerId,p);if(S.mode==='move')moveGesture();else if(S.mode==='setup'&&ptrs.size===1){if(S.setupStage===1)S.collarY=p.y;else if(S.setupStage===2)S.centerX=p.x}else if(S.mode==='calibrate'&&ptrs.size===1&&S.calIdx>=0)S.calPts[S.calIdx]=p});const endPtr=e=>{ptrs.delete(e.pointerId);if(S.mode==='move')rebase();S.calIdx=-1};canvas.addEventListener('pointerup',endPtr);canvas.addEventListener('pointercancel',endPtr);
+
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+
+  const p = pos(e);
+
+  // Locked anchors cannot be changed by tapping the camera view.
+  if (S.anchorLocked && S.mode === 'setup') {
+    return toast('Anchors are locked. Tap Unlock collar & center anchors to change them.');
+  }
+
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, p);
+
+  if (S.mode === 'move') {
+    rebase();
+  } else if (S.mode === 'setup') {
+    if (S.setupStage === 1) {
+      S.collarY = p.y;
+      S.setupStage = 2;
+      toast('Collar marked. Now tap the shirt centerline at collar height.');
+    } else {
+      S.centerX = p.x;
+      S.setupStage = 0;
+      captureTrackingTemplate();
+
+      const pp = PRESETS.find(q => q.id === $('presetSelect').value) || PRESETS[0];
+      applyPreset(pp);
+
+      $('guideStatus').textContent =
+        'Collar/center anchor set. Small shirt movements can now be tracked.';
+      toast('Anchor set. The design is positioned relative to your shirt.');
+    }
+  } else if (S.mode === 'calibrate') {
+    calTap(p);
+  }
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (!ptrs.has(e.pointerId)) return;
+
+  const p = pos(e);
+  ptrs.set(e.pointerId, p);
+
+  if (S.mode === 'move') {
+    moveGesture();
+  } else if (S.mode === 'setup' && ptrs.size === 1) {
+    // Never change locked anchors through pointer movement.
+    if (S.anchorLocked) return;
+
+    if (S.setupStage === 1) {
+      S.collarY = p.y;
+    } else if (S.setupStage === 2) {
+      S.centerX = p.x;
+    }
+  } else if (S.mode === 'calibrate' && ptrs.size === 1 && S.calIdx >= 0) {
+    S.calPts[S.calIdx] = p;
+  }
+});
+
 const HINTS={move:'Drag to move · pinch to resize · twist to rotate',setup:'Tap collar center, then tap shirt centerline at collar height',calibrate:'Tap two points a known distance apart, then enter the real distance'};function setMode(m){S.mode=m;ptrs.clear();gest=null;document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));$('hint').textContent=HINTS[m];els.calbar.hidden=m!=='calibrate'}document.querySelectorAll('#modes button').forEach(b=>b.addEventListener('click',()=>{
   if(b.dataset.mode==='setup'){
     if(S.anchorLocked)return toast('Unlock the collar and center anchors before realigning.');
