@@ -129,6 +129,12 @@ These are proposed test definitions, **not achieved results**.
 
 These changes improve failure signaling only. They do **not** improve the underlying tracker to full-garment pose estimation, remove perspective distortion, or establish physical accuracy. Those require the benchmark and subsequent architecture phases above.
 
+## Simple landmark prototype added in this branch
+
+The current prototype adds a button that runs the existing background-removal module, estimates three starting points from the resulting shirt silhouette, and asks the operator to correct the neckline center and both shoulder points. It tracks image patches at those three points and applies a shared translation only when at least two matches are usable and their movement is reasonably consistent. It pauses on uncertain matches.
+
+**This is not AI seam detection.** A silhouette bounding box cannot reliably infer the true neckline or shoulder seams; suggested points are only starting guesses. The prototype does not estimate shirt rotation, perspective, or changing camera scale. Test it on representative T-shirts before relying on it, and keep manual correction available.
+
 ## T-shirt landmark AI implementation gate
 
 The requested UX is automatic detection first, with manual correction. The current repository does not contain a verified flat-lay T-shirt landmark model or model weights. Do not label a classical image heuristic as AI and do not substitute a human-pose model without validation: flat-lay garments often contain no human body, and neckline/shoulder seam visibility varies by cut, color, folds, and lighting.
