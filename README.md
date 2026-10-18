@@ -11,6 +11,10 @@ A mobile-first browser-based DTF shirt mockup studio with a full-screen live cam
 5. Tap the shutter (bottom center) to capture and save the composed shirt mockup.
 6. Use Settings → Export to save the transparent artwork PNG or placement preview.
 
+## Engineering status
+
+See [ENGINEERING_REVIEW.md](ENGINEERING_REVIEW.md) for the current-state review, recommended hybrid tracking architecture, phased plan, benchmark protocol, and proposed acceptance tests. Manual scale calibration is only a local pixels-per-centimeter estimate; it does not correct perspective distortion. The app now invalidates calibration after preview geometry, source, or camera changes, but this is not a validated accuracy guarantee.
+
 ## Camera and tracking
 
 - The camera-first layout fills the mobile viewport and keeps the gallery, shutter, and settings controls at the bottom.
