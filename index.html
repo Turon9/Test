@@ -94,12 +94,12 @@
       <select id="presetSelect" class="select-wide">
         <option value="center">Center chest</option><option value="left">Wearer’s left chest</option><option value="right">Wearer’s right chest</option><option value="back">Upper back</option><option value="full">Full front</option>
       </select>
-      <button id="autoDetect" class="button secondary full detect-button">✧ Set collar &amp; center anchor</button>
-      <p class="field-note">Capture the initial ghost cutout to repeat camera framing. Then mark the collar center and centerline once; tracking follows small garment movements while the ghost remains as your fixed reference.</p>
+      <button id="autoDetect" class="button secondary full detect-button">✧ Auto-find T-shirt landmarks</button>
+      <p class="field-note">Suggests neckline and shoulder points from the shirt outline. Check the points, then tap neckline center, left shoulder, and right shoulder to correct them. Keep the shirt flat and camera overhead.</p>
       <div class="field-block anchor-lock-block">
-        <div class="field-title"><label for="anchorLock">Anchor lock</label><span class="hint-label">Tracking stays active</span></div>
-        <button id="anchorLock" class="button secondary full" type="button" aria-pressed="false">Lock collar &amp; center anchors</button>
-        <p id="anchorLockNote" class="field-note">Set both anchors first. Locking protects the collar and center reference from being re-marked; shirt tracking continues to follow garment movement. Tap once to unlock. Resets when you reload the page.</p>
+        <div class="field-title"><label for="anchorLock">Landmark lock</label><span class="hint-label">Tracking stays active</span></div>
+        <button id="anchorLock" class="button secondary full" type="button" aria-pressed="false">Lock T-shirt landmarks</button>
+        <p id="anchorLockNote" class="field-note">Check the neckline and shoulder points, then lock them. Tracking pauses if matches become unreliable.</p>
       </div>
     </div>
     <div class="two-fields">

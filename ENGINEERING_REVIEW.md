@@ -39,9 +39,9 @@ Use a **geometry-first, hybrid tracker**, with AI as an optional garment/landmar
    - For physical placement, prefer a printed fiducial/known-size reference near the garment or multiple known points to estimate a planar homography. Two-point scalar calibration is an interim method, not perspective correction.
 
 3. **Multi-feature tracking**
-   - Track several spatially separated features around collar seam, shoulder seams, and garment body using pyramidal optical flow or a feature matcher.
+   - Track three T-shirt-specific landmarks: neckline center, left shoulder seam, and right shoulder seam. Track spatially separated patches around these landmarks using pyramidal optical flow or a feature matcher.
    - Reject outliers with RANSAC; estimate translation, rotation, and scale from inliers. If the garment is planar and enough reliable points are available, estimate a homography.
-   - Use AI segmentation/landmarks to propose garment boundaries and semantic points; geometry validates temporal consistency and estimates motion.
+   - Use AI landmark detection to propose the neckline center and both shoulder seams; geometry validates temporal consistency and estimates shirt translation, shoulder-line rotation, and apparent width change.
    - Keep the current manual anchor flow as fallback and provide a clear “tracking lost—re-align” state.
 
 4. **Measurement model**
@@ -68,14 +68,14 @@ Use a **geometry-first, hybrid tracker**, with AI as an optional garment/landmar
 - Show a persistent warning when calibration is invalid or the camera may have moved.
 - Add exportable test records containing ground truth, estimate, absolute error, device/browser, and calibration method.
 
-### Phase 2 — geometry-based tracking
-- Add multi-point tracking with outlier rejection and a confidence gate.
+### Phase 2 — T-shirt neckline-and-shoulder geometry tracking
+- Add three-landmark tracking for the neckline center and both shoulder seams, with outlier rejection and a confidence gate.
 - Estimate planar translation/rotation/scale first; then add homography only when enough stable points exist.
 - Compare against the current single-patch tracker using the same benchmark clips and ground truth.
 - On failure, freeze tracking and request reacquisition rather than silently drifting.
 
-### Phase 3 — hybrid AI garment landmarks
-- Add an optional browser-compatible model for shirt segmentation and collar/shoulder landmark proposals.
+### Phase 3 — hybrid AI T-shirt landmark detection
+- Add an optional browser-compatible model for T-shirt neckline-center and left/right shoulder-seam proposals. Keep the landmark schema focused on crew-neck T-shirts initially; treat V-necks, hoodies, raglan seams, and obscured seams as separate validation cases.
 - Fuse semantic detections with geometric tracks; reject impossible jumps and maintain temporal continuity.
 - Benchmark model load time, memory, frame latency, and accuracy on representative shirts, colors, wrinkles, lighting, and devices.
 
@@ -128,3 +128,29 @@ These are proposed test definitions, **not achieved results**.
 - Manual reset clears calibration state and points.
 
 These changes improve failure signaling only. They do **not** improve the underlying tracker to full-garment pose estimation, remove perspective distortion, or establish physical accuracy. Those require the benchmark and subsequent architecture phases above.
+
+## Simple landmark prototype added in this branch
+
+The current prototype adds a button that runs the existing background-removal module, estimates three starting points from the resulting shirt silhouette, and asks the operator to correct the neckline center and both shoulder points. It tracks image patches at those three points and applies a shared translation only when at least two matches are usable and their movement is reasonably consistent. It pauses on uncertain matches.
+
+**This is not AI seam detection.** A silhouette bounding box cannot reliably infer the true neckline or shoulder seams; suggested points are only starting guesses. The prototype does not estimate shirt rotation, perspective, or changing camera scale. Test it on representative T-shirts before relying on it, and keep manual correction available.
+
+## T-shirt landmark AI implementation gate
+
+The requested UX is automatic detection first, with manual correction. The current repository does not contain a verified flat-lay T-shirt landmark model or model weights. Do not label a classical image heuristic as AI and do not substitute a human-pose model without validation: flat-lay garments often contain no human body, and neckline/shoulder seam visibility varies by cut, color, folds, and lighting.
+
+### Required model contract
+- Input: normalized RGB crop of the shirt, preserving a mapping back to source-frame coordinates.
+- Outputs: neckline center, left shoulder seam point, right shoulder seam point, per-landmark confidence, and optionally a garment/neckline heatmap.
+- Model metadata: version, input dimensions, coordinate convention, training/evaluation dataset provenance, license, and supported garment styles.
+- Runtime: browser-compatible inference (for example, ONNX Runtime Web or TensorFlow.js), with model loading failures handled explicitly and no server requirement.
+- Post-processing: reject low-confidence or geometrically inconsistent landmarks; permit operator drag-to-correct; use the corrected landmarks to initialize geometric tracking.
+- Fallback: when detection fails, keep the existing manual setup workflow. Never fabricate a landmark or report a successful detection without model output.
+
+### Model acceptance tests
+- Evaluate on a held-out dataset of flat-lay T-shirts covering crew necks, V-necks, dark/light colors, low-contrast seams, wrinkles, varied lighting, and partial occlusion.
+- Measure each landmark's pixel error normalized by shoulder width, detection success rate, false-detection rate, confidence calibration, initialization latency, and browser memory.
+- Freeze the model and thresholds before the final held-out evaluation. The dataset must contain annotated ground-truth points and separate training/validation/test splits.
+- Initially support crew-neck T-shirts if broader styles do not meet the measured gate. Show manual correction whenever confidence is below the threshold chosen from validation data.
+
+Until a compatible model and annotated evaluation set are available, the project can implement the landmark UI, model-loading contract, geometry checks, and manual fallback, but it cannot honestly claim that AI landmark detection has been implemented or validated.
