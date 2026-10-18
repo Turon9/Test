@@ -331,51 +331,197 @@ function drawCal(){
   });
 }
 
-const ptrs=new Map();
-let gest=null;
+
+const ptrs = new Map();
+let gest = null;
+
+function getDesignCorner(p) {
+  const d = S.design;
+  const w = d.wCm * S.pxPerCm;
+  const h = d.hCm * S.pxPerCm;
+  const c = Math.cos(d.rot);
+  const s = Math.sin(d.rot);
+
+  // Transform the pointer into the design's unrotated coordinates.
+  const dx = p.x - d.x;
+  const dy = p.y - d.y;
+  const localX = dx * c + dy * s;
+  const localY = -dx * s + dy * c;
+
+  const hitRadius = 24;
+  const corners = [
+    { name: 'tl', x: -w / 2, y: -h / 2 },
+    { name: 'tr', x:  w / 2, y: -h / 2 },
+    { name: 'br', x:  w / 2, y:  h / 2 },
+    { name: 'bl', x: -w / 2, y:  h / 2 }
+  ];
+
+  let nearest = null;
+  let bestDistance = Infinity;
+
+  for (const corner of corners) {
+    const distance = Math.hypot(
+      localX - corner.x,
+      localY - corner.y
+    );
+
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearest = corner;
+    }
+  }
+
+  return bestDistance <= hitRadius ? nearest.name : null;
+}
+
 const pos=e=>{
   const r=canvas.getBoundingClientRect();
   return{x:e.clientX-r.left,y:e.clientY-r.top};
 };
 
-function rebase(){
-  const pts=[...ptrs.values()],d=S.design;
-  if(S.placementLocked){
-    gest=null;
+
+function rebase() {
+  const pts = [...ptrs.values()];
+  const d = S.design;
+
+  if (S.placementLocked) {
+    gest = null;
     return;
   }
-  if(pts.length===1){
-    gest={type:'drag',dx:d.x-pts[0].x,dy:d.y-pts[0].y};
-  }else if(pts.length>=2){
-    const[a,b]=pts;
-    gest={
-      type:'pinch',
-      dist:Math.hypot(b.x-a.x,b.y-a.y)||1,
-      ang:Math.atan2(b.y-a.y,b.x-a.x),
-      w:d.wCm,h:d.hCm,rot:d.rot,
-      mx:(a.x+b.x)/2,my:(a.y+b.y)/2,x:d.x,y:d.y
+
+  if (pts.length === 1) {
+    const p = pts[0];
+
+    // A corner drag resizes the design instead of moving it.
+    const corner = getDesignCorner(p);
+
+    if (corner) {
+      gest = {
+        type: 'resize',
+        corner,
+        startX: p.x,
+        startY: p.y,
+        startW: d.wCm,
+        startH: d.hCm,
+        startXDesign: d.x,
+        startYDesign: d.y,
+        rot: d.rot
+      };
+    } else {
+      gest = {
+        type: 'drag',
+        dx: d.x - p.x,
+        dy: d.y - p.y
+      };
+    }
+  } else if (pts.length >= 2) {
+    const [a, b] = pts;
+
+    gest = {
+      type: 'pinch',
+      dist: Math.hypot(b.x - a.x, b.y - a.y) || 1,
+      ang: Math.atan2(b.y - a.y, b.x - a.x),
+      w: d.wCm,
+      h: d.hCm,
+      rot: d.rot,
+      mx: (a.x + b.x) / 2,
+      my: (a.y + b.y) / 2,
+      x: d.x,
+      y: d.y
     };
-  }else gest=null;
-}
-
-function moveGesture(){
-  const pts=[...ptrs.values()],d=S.design;
-  if(S.placementLocked||!gest)return;
-
-  if(gest.type==='drag'&&pts.length===1){
-    d.x=pts[0].x+gest.dx;
-    d.y=pts[0].y+gest.dy;
-  }else if(gest.type==='pinch'&&pts.length>=2){
-    const[a,b]=pts;
-    const k=(Math.hypot(b.x-a.x,b.y-a.y)||1)/gest.dist;
-    const ang=Math.atan2(b.y-a.y,b.x-a.x),kk=clamp(k,.05,20);
-    d.wCm=clamp(gest.w*kk,.5,150);
-    d.hCm=clamp(gest.h*kk,.5,150);
-    d.rot=gest.rot+ang-gest.ang;
-    d.x=gest.x+(a.x+b.x)/2-gest.mx;
-    d.y=gest.y+(a.y+b.y)/2-gest.my;
+  } else {
+    gest = null;
   }
 }
+
+
+
+function moveGesture() {
+  const pts = [...ptrs.values()];
+  const d = S.design;
+
+  // Only Design Lock blocks resizing and moving.
+  // Anchor Lock does not block design manipulation.
+  if (S.placementLocked || !gest) return;
+
+  if (gest.type === 'drag' && pts.length === 1) {
+    d.x = pts[0].x + gest.dx;
+    d.y = pts[0].y + gest.dy;
+
+  } else if (gest.type === 'resize' && pts.length === 1) {
+    const p = pts[0];
+    const c = Math.cos(gest.rot);
+    const s = Math.sin(gest.rot);
+
+    const dx = p.x - gest.startX;
+    const dy = p.y - gest.startY;
+
+    // Convert pointer movement into the design's rotated coordinates.
+    const localDX = dx * c + dy * s;
+    const localDY = -dx * s + dy * c;
+
+    const horizontalSign = gest.corner.endsWith('r') ? 1 : -1;
+    const verticalSign = gest.corner.startsWith('b') ? 1 : -1;
+
+    const aspect = gest.startW / gest.startH;
+
+    let newW = Math.max(
+      0.5,
+      gest.startW + horizontalSign * localDX / S.pxPerCm
+    );
+
+    let newH = Math.max(
+      0.5,
+      gest.startH + verticalSign * localDY / S.pxPerCm
+    );
+
+    // Preserve the artwork's aspect ratio when the aspect lock is checked.
+    if (els.lock.checked && aspect > 0) {
+      const widthChange = Math.abs(newW - gest.startW);
+      const heightChange = Math.abs(newH - gest.startH);
+
+      if (widthChange >= heightChange) {
+        newH = newW / aspect;
+      } else {
+        newW = newH * aspect;
+      }
+    }
+
+    newW = clamp(newW, 0.5, 150);
+    newH = clamp(newH, 0.5, 150);
+
+    // Keep the opposite corner fixed as the dragged corner moves.
+    const centerOffsetX =
+      (horizontalSign * newW - horizontalSign * gest.startW) *
+      S.pxPerCm / 2;
+
+    const centerOffsetY =
+      (verticalSign * newH - verticalSign * gest.startH) *
+      S.pxPerCm / 2;
+
+    d.wCm = newW;
+    d.hCm = newH;
+
+    d.x = gest.startXDesign + centerOffsetX * c - centerOffsetY * s;
+    d.y = gest.startYDesign + centerOffsetX * s + centerOffsetY * c;
+
+  } else if (gest.type === 'pinch' && pts.length >= 2) {
+    const [a, b] = pts;
+
+    const k =
+      (Math.hypot(b.x - a.x, b.y - a.y) || 1) / gest.dist;
+
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const kk = clamp(k, 0.05, 20);
+
+    d.wCm = clamp(gest.w * kk, 0.5, 150);
+    d.hCm = clamp(gest.h * kk, 0.5, 150);
+    d.rot = gest.rot + ang - gest.ang;
+    d.x = gest.x + (a.x + b.x) / 2 - gest.mx;
+    d.y = gest.y + (a.y + b.y) / 2 - gest.my;
+  }
+}
+
 
 function calTap(p){
   if(S.calPts.length<2){
