@@ -39,9 +39,9 @@ Use a **geometry-first, hybrid tracker**, with AI as an optional garment/landmar
    - For physical placement, prefer a printed fiducial/known-size reference near the garment or multiple known points to estimate a planar homography. Two-point scalar calibration is an interim method, not perspective correction.
 
 3. **Multi-feature tracking**
-   - Track several spatially separated features around collar seam, shoulder seams, and garment body using pyramidal optical flow or a feature matcher.
+   - Track three T-shirt-specific landmarks: neckline center, left shoulder seam, and right shoulder seam. Track spatially separated patches around these landmarks using pyramidal optical flow or a feature matcher.
    - Reject outliers with RANSAC; estimate translation, rotation, and scale from inliers. If the garment is planar and enough reliable points are available, estimate a homography.
-   - Use AI segmentation/landmarks to propose garment boundaries and semantic points; geometry validates temporal consistency and estimates motion.
+   - Use AI landmark detection to propose the neckline center and both shoulder seams; geometry validates temporal consistency and estimates shirt translation, shoulder-line rotation, and apparent width change.
    - Keep the current manual anchor flow as fallback and provide a clear “tracking lost—re-align” state.
 
 4. **Measurement model**
@@ -68,14 +68,14 @@ Use a **geometry-first, hybrid tracker**, with AI as an optional garment/landmar
 - Show a persistent warning when calibration is invalid or the camera may have moved.
 - Add exportable test records containing ground truth, estimate, absolute error, device/browser, and calibration method.
 
-### Phase 2 — geometry-based tracking
-- Add multi-point tracking with outlier rejection and a confidence gate.
+### Phase 2 — T-shirt neckline-and-shoulder geometry tracking
+- Add three-landmark tracking for the neckline center and both shoulder seams, with outlier rejection and a confidence gate.
 - Estimate planar translation/rotation/scale first; then add homography only when enough stable points exist.
 - Compare against the current single-patch tracker using the same benchmark clips and ground truth.
 - On failure, freeze tracking and request reacquisition rather than silently drifting.
 
-### Phase 3 — hybrid AI garment landmarks
-- Add an optional browser-compatible model for shirt segmentation and collar/shoulder landmark proposals.
+### Phase 3 — hybrid AI T-shirt landmark detection
+- Add an optional browser-compatible model for T-shirt neckline-center and left/right shoulder-seam proposals. Keep the landmark schema focused on crew-neck T-shirts initially; treat V-necks, hoodies, raglan seams, and obscured seams as separate validation cases.
 - Fuse semantic detections with geometric tracks; reject impossible jumps and maintain temporal continuity.
 - Benchmark model load time, memory, frame latency, and accuracy on representative shirts, colors, wrinkles, lighting, and devices.
 
