@@ -21,11 +21,27 @@ function toast(msg){
   toast.t=setTimeout(()=>$('toast').hidden=true,3200);
 }
 
+// A px/cm value is valid only for the display geometry used to calibrate it.
+// Invalidate rather than silently reusing scale after a camera/source/layout change.
+function invalidateCalibration(reason){
+  if(!S.calibrated)return;
+  S.calibrated=false;
+  S.calibrationReason=reason||'View geometry changed';
+  if($('guideStatus')){
+    $('guideStatus').textContent='Physical scale is no longer calibrated: '+S.calibrationReason+'. Recalibrate against a ruler before relying on measurements.';
+  }
+}
+
 function resize(){
   const r=stage.getBoundingClientRect();
+  const nextW=Math.max(1,Math.round(r.width));
+  const nextH=Math.max(1,Math.round(r.height));
+  if((nextW!==W||nextH!==H)&&(W>1||H>1)){
+    invalidateCalibration('preview size or orientation changed');
+  }
   S.dpr=window.devicePixelRatio||1;
-  W=Math.max(1,Math.round(r.width));
-  H=Math.max(1,Math.round(r.height));
+  W=nextW;
+  H=nextH;
   canvas.width=W*S.dpr;
   canvas.height=H*S.dpr;
   canvas.style.width=W+'px';
@@ -64,6 +80,7 @@ function stopStream(){
 }
 
 async function startCamera(){
+  if(S.source==='video'||S.calibrated)invalidateCalibration('camera restarted or camera facing changed');
   stopStream();
   S.frozen=null;
   $('freeze').textContent='Freeze';
@@ -107,6 +124,7 @@ function loadPhoto(file){
 
   const im=new Image();
   im.onload=()=>{
+    invalidateCalibration('shirt photo source changed');
     stopStream();
     S.photo=im;
     S.source='photo';
@@ -632,17 +650,29 @@ document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',
 }));
 
 $('calApply').addEventListener('click',()=>{
-  const real=fromU(parseFloat(els.calCm.value));
   if(S.calPts.length<2)return toast('Tap two points on the screen first.');
-  if(!(real>0))return toast('Enter the known distance.');
-  S.pxPerCm=Math.hypot(S.calPts[1].x-S.calPts[0].x,S.calPts[1].y-S.calPts[0].y)/real;
+  const entered=parseFloat(els.calCm.value);
+  const real=fromU(entered);
+  if(!Number.isFinite(real)||real<=0)return toast('Enter a known distance greater than zero.');
+  const measuredPx=Math.hypot(S.calPts[1].x-S.calPts[0].x,S.calPts[1].y-S.calPts[0].y);
+  if(!Number.isFinite(measuredPx)||measuredPx<8)return toast('The two screen points are too close. Mark a longer known distance.');
+  const pxPerCm=measuredPx/real;
+  if(!Number.isFinite(pxPerCm)||pxPerCm<=0)return toast('Calibration failed. Check the marked points and distance.');
+  S.pxPerCm=pxPerCm;
   S.calibrated=true;
+  S.calibrationReason='';
   S.calPts=[];
   els.calCm.value='';
   setMode('move');
-  toast('Scale calibrated. Keep the camera at the same distance.');
+  $('guideStatus').textContent='Scale calibrated from a '+r1(real)+' cm reference. Keep the camera position, zoom, orientation, and preview size unchanged. This does not correct perspective distortion; verify with a ruler.';
+  toast('Scale calibrated. Keep the camera position and preview geometry unchanged.');
 });
-$('calReset').addEventListener('click',()=>S.calPts=[]);
+$('calReset').addEventListener('click',()=>{
+  S.calPts=[];
+  S.calIdx=-1;
+  invalidateCalibration('manual calibration reset');
+  toast('Calibration points reset. Recalibrate before using physical measurements.');
+});
 
 function updateArtInfo(){
   const d=S.design;
