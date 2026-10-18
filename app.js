@@ -3,7 +3,7 @@
 const $=id=>document.getElementById(id), canvas=$('view'),ctx=canvas.getContext('2d'),video=$('video'),stage=$('stage'),editor=$('artEditor'),ectx=editor.getContext('2d');
 const CM_IN=2.54, clamp=(v,a,b)=>Math.min(b,Math.max(a,v)), r1=v=>Math.round(v*10)/10;
 const PRESETS=[{id:'center',label:'Center chest',dx:0,top:8},{id:'left',label:'Wearer left chest',dx:9,top:10},{id:'right',label:'Wearer right chest',dx:-9,top:10},{id:'back',label:'Upper back',dx:0,top:6},{id:'full',label:'Full front',dx:0,top:10}], QUICK=[[8,8],[10,10],[20,25],[28,35]];
-const S={source:null,photo:null,frozen:null,facing:'environment',stream:null,pxPerCm:10,calibrated:false,collarY:null,centerX:null,design:{img:null,original:null,wCm:25,hCm:30,x:0,y:0,rot:0},opacity:.8,unit:'cm',grid:false,guides:true,mode:'move',calPts:[],calIdx:-1,dpr:1,artName:'',editMode:null,editBase:null,editPixels:null,brush:20,personModel:null,detectBusy:false,referenceCutout:null,showReference:true,trackingTemplate:null,trackingCanvas:document.createElement('canvas'),trackingCtx:null,lastTrackAt:0,trackConfidence:0,anchorSet:false,setupStage:0,trackingActive:true,lastTrackStatusAt:0,trackLost:false,placementLocked:false,guideStyle:'transparent',shirtOutline:null,designOutline:null};
+const S={source:null,photo:null,frozen:null,facing:'environment',stream:null,pxPerCm:10,calibrated:false,collarY:null,centerX:null,design:{img:null,original:null,wCm:25,hCm:30,x:0,y:0,rot:0},opacity:.8,unit:'cm',grid:false,guides:true,mode:'move',calPts:[],calIdx:-1,dpr:1,artName:'',editMode:null,editBase:null,editPixels:null,brush:20,personModel:null,detectBusy:false,referenceCutout:null,showReference:true,trackingTemplate:null,trackingCanvas:document.createElement('canvas'),trackingCtx:null,lastTrackAt:0,trackConfidence:0,anchorSet:false,setupStage:0,trackingActive:true,lastTrackStatusAt:0,trackLost:false,placementLocked:false,anchorLocked:false,guideStyle:'transparent',shirtOutline:null,designOutline:null};
 let W=1,H=1; const els={};['w','h','top','off','rot','unit','lock','opacity','readout','hint','toast','start','err','calbar','calCm','freeze','sizes','presets'].forEach(id=>els[id]=$(id));
 const toU=cm=>S.unit==='in'?cm/CM_IN:cm,fromU=v=>S.unit==='in'?v*CM_IN:v;
 function toast(msg){$('toast').textContent=msg;$('toast').hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').hidden=true,3200)}
@@ -35,7 +35,13 @@ function rebase(){const pts=[...ptrs.values()],d=S.design;if(S.placementLocked){
 function moveGesture(){const pts=[...ptrs.values()],d=S.design;if(S.placementLocked||!gest)return;if(gest.type==='drag'&&pts.length===1){d.x=pts[0].x+gest.dx;d.y=pts[0].y+gest.dy}else if(gest.type==='pinch'&&pts.length>=2){const[a,b]=pts,k=(Math.hypot(b.x-a.x,b.y-a.y)||1)/gest.dist,ang=Math.atan2(b.y-a.y,b.x-a.x),kk=clamp(k,.05,20);d.wCm=clamp(gest.w*kk,.5,150);d.hCm=clamp(gest.h*kk,.5,150);d.rot=gest.rot+ang-gest.ang;d.x=gest.x+(a.x+b.x)/2-gest.mx;d.y=gest.y+(a.y+b.y)/2-gest.my}}
 function calTap(p){if(S.calPts.length<2){S.calPts.push(p);S.calIdx=S.calPts.length-1}else{let best=0,bd=Infinity;S.calPts.forEach((q,i)=>{let dd=Math.hypot(q.x-p.x,q.y-p.y);if(dd<bd){bd=dd;best=i}});S.calPts[best]=p;S.calIdx=best}}
 canvas.addEventListener('pointerdown',e=>{e.preventDefault();canvas.setPointerCapture(e.pointerId);const p=pos(e);ptrs.set(e.pointerId,p);if(S.mode==='move')rebase();else if(S.mode==='setup'){if(S.setupStage===1){S.collarY=p.y;S.setupStage=2;toast('Collar marked. Now tap the shirt centerline at collar height.')}else{S.centerX=p.x;S.setupStage=0;captureTrackingTemplate();const pp=PRESETS.find(q=>q.id===$('presetSelect').value)||PRESETS[0];applyPreset(pp);$('guideStatus').textContent='Collar/center anchor set. Small shirt movements can now be tracked; re-mark if confidence drops.';toast('Anchor set. The design is positioned relative to your shirt.')}}else if(S.mode==='calibrate')calTap(p)});canvas.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const p=pos(e);ptrs.set(e.pointerId,p);if(S.mode==='move')moveGesture();else if(S.mode==='setup'&&ptrs.size===1){if(S.setupStage===1)S.collarY=p.y;else if(S.setupStage===2)S.centerX=p.x}else if(S.mode==='calibrate'&&ptrs.size===1&&S.calIdx>=0)S.calPts[S.calIdx]=p});const endPtr=e=>{ptrs.delete(e.pointerId);if(S.mode==='move')rebase();S.calIdx=-1};canvas.addEventListener('pointerup',endPtr);canvas.addEventListener('pointercancel',endPtr);
-const HINTS={move:'Drag to move · pinch to resize · twist to rotate',setup:'Tap collar center, then tap shirt centerline at collar height',calibrate:'Tap two points a known distance apart, then enter the real distance'};function setMode(m){S.mode=m;ptrs.clear();gest=null;document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));$('hint').textContent=HINTS[m];els.calbar.hidden=m!=='calibrate'}document.querySelectorAll('#modes button').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.mode==='setup')S.setupStage=1;setMode(b.dataset.mode)}));
+const HINTS={move:'Drag to move · pinch to resize · twist to rotate',setup:'Tap collar center, then tap shirt centerline at collar height',calibrate:'Tap two points a known distance apart, then enter the real distance'};function setMode(m){S.mode=m;ptrs.clear();gest=null;document.querySelectorAll('#modes button').forEach(b=>b.classList.toggle('on',b.dataset.mode===m));$('hint').textContent=HINTS[m];els.calbar.hidden=m!=='calibrate'}document.querySelectorAll('#modes button').forEach(b=>b.addEventListener('click',()=>{
+  if(b.dataset.mode==='setup'){
+    if(S.anchorLocked)return toast('Unlock the collar and center anchors before realigning.');
+    S.setupStage=1;
+  }
+  setMode(b.dataset.mode);
+}));
 document.querySelectorAll('#tabs button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));['design','pos','export'].forEach(t=>$('tab-'+t).hidden=t!==b.dataset.tab)}));
 $('calApply').addEventListener('click',()=>{const real=fromU(parseFloat(els.calCm.value));if(S.calPts.length<2)return toast('Tap two points on the screen first.');if(!(real>0))return toast('Enter the known distance.');S.pxPerCm=Math.hypot(S.calPts[1].x-S.calPts[0].x,S.calPts[1].y-S.calPts[0].y)/real;S.calibrated=true;S.calPts=[];els.calCm.value='';setMode('move');toast('Scale calibrated. Keep the camera at the same distance.')});$('calReset').addEventListener('click',()=>S.calPts=[]);
 function updateArtInfo(){const d=S.design;$('artName').textContent=S.artName||'No artwork selected';$('artMeta').textContent=d.img?d.img.naturalWidth+' × '+d.img.naturalHeight+' px':'PNG with transparency recommended';const thumb=$('artThumb');thumb.innerHTML='';if(d.img){const im=new Image();im.src=d.img.src;thumb.appendChild(im)}else thumb.innerHTML='<span>✳</span>';drawEditor()}
@@ -53,7 +59,43 @@ async function imageFromBlob(blob){const url=URL.createObjectURL(blob),im=new Im
 $('captureGuide').addEventListener('click',async()=>{const source=bg();if(!source)return toast('Start the live camera or load a shirt photo first.');const btn=$('captureGuide');btn.disabled=true;btn.textContent='Creating cutout…';$('guideStatus').textContent='Creating a garment silhouette from the current frame. Contrast between the shirt and table helps.';try{const [sw,sh]=bgSize(source),shot=document.createElement('canvas');shot.width=sw;shot.height=sh;shot.getContext('2d').drawImage(source,0,0,sw,sh);const mod=await backgroundRemovalModule(),blob=await (mod.removeBackground||mod.default)(shot.toDataURL('image/jpeg',.92),{output:{format:'image/png'}});S.referenceCutout=await imageFromBlob(blob);S.showReference=true;S.trackLost=false;$('toggleGuide').disabled=false;$('toggleGuide').textContent='Hide guide';$('guideStatus').textContent='Garment cutout captured. Align the live shirt with the translucent ghost to repeat the same camera position and height.';toast('Cutout guide ready. Align the live garment to the ghost outline.')}catch(e){$('guideStatus').textContent='Automatic cutout failed. Try brighter lighting and a contrasting table, or continue with manual collar/center alignment.';toast('Could not create the cutout. Try again with better shirt/table contrast.')}finally{btn.disabled=false;btn.textContent='Capture shirt guide'}});
 $('toggleGuide').addEventListener('click',()=>{if(!S.referenceCutout)return;S.showReference=!S.showReference;$('toggleGuide').textContent=S.showReference?'Hide guide':'Show guide';$('guideStatus').textContent=S.showReference?'Align the live shirt with the translucent captured cutout.':'Reference hidden. Collar/center tracking remains available.'});
 $('trackToggle').addEventListener('click',()=>{S.trackingActive=!S.trackingActive;$('trackToggle').textContent=S.trackingActive?'Tracking on':'Lock position';$('guideStatus').textContent=S.trackingActive?'Tracking enabled. Keep the collar seam visible; use the ghost cutout if tracking drifts.':'Tracking paused. The overlay is locked to its current screen position.';if(S.trackingActive&&!S.anchorSet)toast('Set the collar and center anchor first to start tracking.')});
-$('autoDetect').addEventListener('click',()=>{if(!bg())return toast('Start the camera or upload a shirt photo first.');S.setupStage=1;S.anchorSet=false;setMode('setup');$('autoDetect').textContent='Re-mark collar & center';toast('Tap the collar center, then tap the shirt centerline at collar height. The overlay will anchor to these points.');});
+$('autoDetect').addEventListener('click',()=>{
+  if(S.anchorLocked)return toast('Unlock the collar and center anchors before re-marking them.');
+  if(!bg())return toast('Start the camera or upload a shirt photo first.');
+  S.setupStage=1;
+  S.anchorSet=false;
+  setMode('setup');
+  $('autoDetect').textContent='Re-mark collar & center';
+  toast('Tap the collar center, then tap the shirt centerline at collar height. The overlay will anchor to these points.');
+});
+
+$('anchorLock').addEventListener('click',()=>{
+  if(!S.anchorLocked&&!S.anchorSet){
+    return toast('Set both collar and center anchors before locking them.');
+  }
+
+  S.anchorLocked=!S.anchorLocked;
+
+  if(S.anchorLocked&&S.mode==='setup'){
+    setMode('move');
+  }
+
+  $('anchorLock').textContent=S.anchorLocked
+    ?'Unlock collar & center anchors'
+    :'Lock collar & center anchors';
+
+  $('anchorLock').setAttribute('aria-pressed',String(S.anchorLocked));
+  $('anchorLock').classList.toggle('primary',S.anchorLocked);
+  $('anchorLock').classList.toggle('secondary',!S.anchorLocked);
+
+  $('anchorLockNote').textContent=S.anchorLocked
+    ?'Collar and center anchor references are locked against re-marking. Shirt tracking remains active and follows garment movement. Tap once to unlock. This lock resets when you reload the page.'
+    :'Anchor lock is off. You can re-mark the collar and center anchors. Tracking follows the shirt whenever anchors are set.';
+
+  toast(S.anchorLocked
+    ?'Collar and center anchors locked. Tracking remains active.'
+    :'Anchor lock released. You can re-mark the anchors.');
+});
 // Robust grayscale-gradient patch tracking for a fixed overhead camera.
 // Normalized matching, coarse-to-fine search, peak uniqueness and conservative smoothing reduce drift.
 function trackingFrame(source){
@@ -105,7 +147,13 @@ editor.addEventListener('pointerdown',e=>{if(!S.editMode)return;brushing=true;ed
 $('removeBg').addEventListener('click',async()=>{if(!S.design.original)return toast('Upload artwork before removing its background.');await autoRemoveBackground(S.design.original)});
 function artBlob(){return new Promise((resolve,reject)=>{if(!S.design.img)return reject(new Error('Upload artwork first.'));const im=S.design.img,srcW=im.naturalWidth,srcH=im.naturalHeight;let w=srcW,h=srcH;const dpi=$('dpi').value,printW=parseFloat($('exportWidth').value);if(dpi!=='max'&&printW>0){w=Math.round(printW/2.54*Number(dpi));h=Math.round(w*srcH/srcW)}else if(dpi==='max'){w=srcW;h=srcH}const max=12000;if(w>max||h>max){const k=Math.min(max/w,max/h);w=Math.floor(w*k);h=Math.floor(h*k)}const c=document.createElement('canvas');c.width=w;c.height=h;const cctx=c.getContext('2d');if(!$('transparentExport').checked){cctx.fillStyle='#fff';cctx.fillRect(0,0,w,h)}cctx.drawImage(im,0,0,w,h);c.toBlob(b=>b?resolve({blob:b,w,h,dpi:dpi==='max'?null:Number(dpi)}):reject(new Error('Could not export PNG.')),'image/png')})}
 async function downloadBlob(blob,name){const file=new File([blob],name,{type:'image/png'});if(navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:name});return}catch(e){if(e.name==='AbortError')return}}const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000)}$('exportPng').addEventListener('click',async()=>{try{const o=await artBlob();await downloadBlob(o.blob,'dtf-artwork.png');$('exportInfo').textContent=o.w+' × '+o.h+' pixels'+(o.dpi?' · '+o.dpi+' DPI target':' · source resolution');toast('PNG export ready.')}catch(e){toast(e.message)}});$('save').addEventListener('click',()=>{const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;out.getContext('2d').drawImage(canvas,0,0);out.toBlob(async b=>{if(b)await downloadBlob(b,'dtf-placement-preview.png')},'image/png')});
-$('alignShirt').addEventListener('click',()=>{if(S.placementLocked)return toast('Unlock the design before realigning it.');S.setupStage=1;setMode('setup');toast('Tap the collar center, then tap the shirt centerline at collar height.')});
+$('alignShirt').addEventListener('click',()=>{
+  if(S.anchorLocked)return toast('Unlock the collar and center anchors before realigning.');
+  if(S.placementLocked)return toast('Unlock the design before realigning it.');
+  S.setupStage=1;
+  setMode('setup');
+  toast('Tap the collar center, then tap the shirt centerline at collar height.');
+});
 // Camera-first mobile controls
 $('galleryBtn')?.addEventListener('click',()=>{if(!$('art').disabled)$('art').click()});
 $('settingsBtn')?.addEventListener('click',()=>{$('settingsPanel').classList.add('settings-open');$('settingsPanel').scrollTop=0});
