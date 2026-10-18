@@ -1,27 +1,44 @@
-# DTF Studio — Flat-Garment Alignment
+# DTF Studio — Camera-first mobile redesign
 
-A mobile-first, browser-based tool for aligning physical DTF transfers on garments laid flat under an overhead phone camera.
+A mobile-first browser-based DTF shirt mockup studio with a full-screen live camera, minimalist controls, automatic design background removal, shirt tracking, calibration, editing, and export.
 
-## Current workflow
+## Main mobile workflow
 
-1. Serve the files over HTTPS (camera permissions generally require a secure context).
-2. Start the camera or choose a shirt photo.
-3. For a repeatable overhead setup, tap **Capture shirt guide**. The app sends a captured frame to the online background-removal model and displays the result as a translucent ghost overlay. Align the live garment with that guide to repeat camera position and height. Use a contrasting table and even lighting for best results.
-4. Tap **Set collar & center anchor**, tap the collar center, then tap the shirt centerline at collar height. Select a placement preset and adjust the design as needed.
-5. Use **Tracking on / Lock position** to toggle lightweight live patch tracking. The tracker follows small image movements near the anchor; if the fabric is plain, lighting changes, or tracking confidence drops, re-mark the anchor or lock the position.
-6. Upload artwork, optionally remove its background, and export a transparent PNG at a chosen physical width and target DPI.
+1. Serve the files over HTTPS; camera permissions generally require a secure context.
+2. Open DTF Studio and tap **Open camera**.
+3. Tap the gallery button (bottom left) to import artwork. Transparent artwork is preserved; images without transparency automatically start background removal.
+4. Position the artwork on the shirt using touch gestures. Use Settings (+) for placement presets, physical dimensions, collar/center alignment, tracking, calibration, and export.
+5. Tap the shutter (bottom center) to capture and save the composed shirt mockup.
+6. Use Settings → Export to save the transparent artwork PNG or placement preview.
 
-## Placement and camera reference notes
+## Camera and tracking
 
-- The translucent shirt cutout is a visual camera-position reference, not a metric depth sensor. It helps repeat framing and camera height by matching the live shirt to a captured silhouette.
-- The cutout uses an online background-removal model. Results depend on shirt/table contrast; the model may isolate more or less than the garment. Recapture or use manual collar/center alignment if it fails.
-- The live anchor tracker is a lightweight local grayscale patch matcher with brightness-normalized matching and a wider recovery search. It follows small translations around the manually marked collar/center anchor; it is not a robust full-garment segmentation or perspective-tracking system. Plain fabric, wrinkles, rotation, large camera movement, and changing shadows can still cause drift. If confidence drops, align the live shirt to the fixed ghost reference or re-mark the anchor.
-- For best repeatability, mount the phone overhead, keep it parallel to the table, use steady lighting, flatten the garment, and keep the collar visible.
-- The visual placement preview is not a guarantee of millimeter accuracy. Verify with a ruler before pressing.
-- The export creates the selected pixel dimensions based on physical width and DPI target. Browsers do not consistently write DPI metadata to PNG, so confirm size in your print software.
+- The camera-first layout fills the mobile viewport and keeps the gallery, shutter, and settings controls at the bottom.
+- Camera permission and device support depend on the browser; use HTTPS and allow camera access.
+- The live anchor tracker is a lightweight local patch matcher. It follows small translations around a manually marked collar/center anchor, but it is not full-garment segmentation or perspective tracking. Plain fabric, wrinkles, rotation, large camera movement, and changing shadows can cause drift. If confidence drops, re-mark the anchor or use the ghost reference.
+- The captured mockup reflects the current composed preview. The preview is not a guarantee of millimeter accuracy; verify physical placement with a ruler before pressing.
 
-## Files
+## Background removal
 
-- `index.html` — responsive interface
-- `style.css` — minimalist iOS-inspired UI
-- `app.js` — camera/photo workflow, shirt guide, anchor tracking, artwork editing, and export
+Automatic background removal uses `@imgly/background-removal` loaded from an online module. The first run needs internet access. Images that already contain transparent pixels are preserved; images without transparency are processed automatically. If processing fails, check connectivity and use the manual erase/restore tools in Settings.
+
+## Export
+
+- **Export transparent PNG** exports the artwork alone with transparency.
+- **Save placement preview** exports the composed preview canvas.
+- Export dimensions are calculated from the chosen print width and DPI target. Browsers do not consistently write DPI metadata into PNG files, so confirm the final size in your print software.
+
+## Deploy with GitHub Pages
+
+1. Upload `index.html`, `style.css`, and `app.js` to the repository root.
+2. Open **Settings → Pages**.
+3. Select **Deploy from a branch**, choose `main` and `/ (root)`, then save.
+4. Open the HTTPS URL on your phone and grant camera permission.
+
+## Setup polish (v5.1)
+
+- **Placement lock:** lock the design against manual move, resize, and rotation while leaving shirt tracking enabled, so the overlay continues to follow the garment.
+- **Guide appearance:** switch between a translucent shirt/artwork guide and an outline guide for the shirt silhouette and design transparency edges.
+- **Settings controls:** locked placement controls are disabled until the design is unlocked.
+
+The outline guide is generated locally from the alpha edge of the shirt cutout and artwork image. For best results, use transparent artwork and capture a shirt guide with good contrast against the background.

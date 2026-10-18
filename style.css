@@ -62,3 +62,12 @@
   .start-overlay[hidden]{display:none}
 }
 @media(min-width:701px){.settings-mobile-heading{display:none!important}}
+
+/* Setup polish: placement lock and guide appearance */
+.guide-style-switch{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:4px;border:1px solid #e1e4ed;border-radius:12px;background:#f0f1f5}
+.guide-style-switch button{min-height:36px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.guide-style-switch button.on{background:#fff;color:var(--text);box-shadow:0 1px 4px #17192312}
+#placementLock:checked~.check-custom{background:#202020;border-color:#202020}
+#placementLock:checked~span:last-child{font-weight:650;color:#202020}
+.control-panel button:disabled,.control-panel input:disabled,.control-panel select:disabled{opacity:.48;cursor:not-allowed}
+@media(max-width:700px){.guide-style-switch button{min-height:42px;font-size:13px}}
