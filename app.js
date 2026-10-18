@@ -5,7 +5,7 @@
 const $=id=>document.getElementById(id), canvas=$('view'),ctx=canvas.getContext('2d'),video=$('video'),stage=$('stage'),editor=$('artEditor'),ectx=editor.getContext('2d');
 const CM_IN=2.54, clamp=(v,a,b)=>Math.min(b,Math.max(a,v)), r1=v=>Math.round(v*10)/10;
 const PRESETS=[{id:'center',label:'Center chest',dx:0,top:8},{id:'left',label:'Wearer left chest',dx:9,top:10},{id:'right',label:'Wearer right chest',dx:-9,top:10},{id:'back',label:'Upper back',dx:0,top:6},{id:'full',label:'Full front',dx:0,top:10}], QUICK=[[8,8],[10,10],[20,25],[28,35]];
-const S={source:null,photo:null,frozen:null,facing:'environment',stream:null,pxPerCm:10,calibrated:false,collarY:null,centerX:null,design:{img:null,original:null,wCm:25,hCm:30,x:0,y:0,rot:0},opacity:.8,unit:'cm',grid:false,guides:true,mode:'move',calPts:[],calIdx:-1,dpr:1,artName:'',editMode:null,editBase:null,editPixels:null,brush:20,personModel:null,detectBusy:false,referenceCutout:null,showReference:true,trackingTemplate:null,trackingCanvas:document.createElement('canvas'),trackingCtx:null,lastTrackAt:0,trackConfidence:0,anchorSet:false,setupStage:0,trackingActive:true,lastTrackStatusAt:0,trackLost:false,placementLocked:false,anchorLocked:false,guideStyle:'transparent',shirtOutline:null,designOutline:null};
+const S={source:null,photo:null,frozen:null,facing:'environment',stream:null,pxPerCm:10,calibrated:false,collarY:null,centerX:null,design:{img:null,original:null,wCm:25,hCm:30,x:0,y:0,rot:0},opacity:.8,unit:'cm',grid:false,guides:true,mode:'move',calPts:[],calIdx:-1,dpr:1,artName:'',editMode:null,editBase:null,editPixels:null,brush:20,personModel:null,detectBusy:false,referenceCutout:null,showReference:true,trackingTemplate:null,trackingTemplates:[],landmarks:[],trackingCanvas:document.createElement('canvas'),trackingCtx:null,lastTrackAt:0,trackConfidence:0,anchorSet:false,setupStage:0,trackingActive:true,lastTrackStatusAt:0,trackLost:false,placementLocked:false,anchorLocked:false,guideStyle:'transparent',shirtOutline:null,designOutline:null};
 
 let W=1,H=1;
 const els={};
@@ -187,6 +187,7 @@ function drawGuides(){
   ctx.fillStyle='#fff';
   ctx.font='600 11px system-ui';
   ctx.fillText('COLLAR',8,S.collarY-6);
+  if(S.landmarks?.length)S.landmarks.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,6,0,Math.PI*2);ctx.fillStyle='#22c58b';ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle='#fff';ctx.font='600 10px system-ui';ctx.fillText(['NECKLINE','LEFT SHOULDER','RIGHT SHOULDER'][i]||'ANCHOR',p.x+8,p.y-8);});
 }
 
 function alphaOutline(source,color='#252522'){
@@ -572,23 +573,11 @@ canvas.addEventListener('pointerdown',e=>{
   if(S.mode==='move'){
     rebase();
   }else if(S.mode==='setup'){
-    if(S.anchorLocked){
-      return toast('Anchors are locked. Unlock them before making changes.');
-    }
-
-    if(S.setupStage===1){
-      S.collarY=p.y;
-      S.setupStage=2;
-      toast('Collar marked. Now tap the shirt centerline at collar height.');
-    }else{
-      S.centerX=p.x;
-      S.setupStage=0;
-      captureTrackingTemplate();
-      const pp=PRESETS.find(q=>q.id===$('presetSelect').value)||PRESETS[0];
-      applyPreset(pp);
-      $('guideStatus').textContent='Collar/center anchor set. Small shirt movements can now be tracked; re-mark if confidence drops.';
-      toast('Anchor set. The design is positioned relative to your shirt.');
-    }
+    if(S.anchorLocked)return toast('Landmarks are locked. Unlock them before changes.');
+    if(!S.landmarks)S.landmarks=[];
+    if(S.setupStage===1){S.landmarks[0]=p;S.collarY=p.y;S.centerX=p.x;S.setupStage=2;toast('Neckline center marked. Tap the left shoulder seam.');}
+    else if(S.setupStage===2){S.landmarks[1]=p;S.setupStage=3;toast('Left shoulder marked. Tap the right shoulder seam.');}
+    else{S.landmarks[2]=p;S.setupStage=0;S.collarY=S.landmarks[0].y;S.centerX=(S.landmarks[1].x+S.landmarks[2].x)/2;captureTrackingTemplate();const pp=PRESETS.find(q=>q.id===$('presetSelect').value)||PRESETS[0];applyPreset(pp);$('guideStatus').textContent='Three T-shirt landmarks set. Tap Auto-find T-shirt landmarks to correct them.';toast('Neckline and shoulder landmarks set.');}
   }else if(S.mode==='calibrate'){
     calTap(p);
   }
@@ -623,7 +612,7 @@ canvas.addEventListener('pointercancel',endPtr);
 
 const HINTS={
   move:'Drag to move · pinch to resize · twist to rotate',
-  setup:'Tap collar center, then tap shirt centerline at collar height',
+  setup:'Tap neckline center, left shoulder seam, then right shoulder seam',
   calibrate:'Tap two points a known distance apart, then enter the real distance'
 };
 
@@ -977,15 +966,27 @@ $('trackToggle').addEventListener('click',()=>{
   if(S.trackingActive&&!S.anchorSet)toast('Set the collar and center anchor first to start tracking.');
 });
 
-$('autoDetect').addEventListener('click',()=>{
-  if(S.anchorLocked)return toast('Unlock the collar and center anchors before re-marking them.');
-  if(!bg())return toast('Start the camera or upload a shirt photo first.');
-  S.setupStage=1;
-  S.anchorSet=false;
-  setMode('setup');
-  $('autoDetect').textContent='Re-mark collar & center';
-  toast('Tap the collar center, then tap the shirt centerline at collar height. The overlay will anchor to these points.');
-});
+async function autoDetectTshirtLandmarks(){
+  const source=bg();if(!source)return toast('Start the camera or upload a shirt photo first.');
+  if(S.anchorLocked)return toast('Unlock the landmarks before detecting again.');
+  const btn=$('autoDetect');btn.disabled=true;btn.textContent='Finding landmarks…';
+  try{
+    const [sw,sh]=bgSize(source),shot=document.createElement('canvas');shot.width=sw;shot.height=sh;shot.getContext('2d').drawImage(source,0,0,sw,sh);
+    const mod=await backgroundRemovalModule(),blob=await (mod.removeBackground||mod.default)(shot.toDataURL('image/jpeg',.92),{output:{format:'image/png'}});
+    const cutout=await imageFromBlob(blob),mask=document.createElement('canvas');mask.width=cutout.naturalWidth;mask.height=cutout.naturalHeight;
+    const mc=mask.getContext('2d',{willReadFrequently:true});mc.drawImage(cutout,0,0);const px=mc.getImageData(0,0,mask.width,mask.height).data;
+    let x0=mask.width,y0=mask.height,x1=-1,y1=-1;
+    for(let y=0;y<mask.height;y+=2)for(let x=0;x<mask.width;x+=2)if(px[(y*mask.width+x)*4+3]>40){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}
+    if(x1<=x0||y1<=y0)throw Error('No shirt silhouette');
+    const k=Math.max(W/sw,H/sh),ox=(W-sw*k)/2,oy=(H-sh*k)/2,pt=(x,y)=>({x:ox+x*k,y:oy+y*k}),bw=x1-x0,bh=y1-y0,cx=(x0+x1)/2;
+    S.landmarks=[pt(cx,y0+bh*.19),pt(x0+bw*.24,y0+bh*.12),pt(x1-bw*.24,y0+bh*.12)];
+    S.collarY=S.landmarks[0].y;S.centerX=S.landmarks[0].x;S.referenceCutout=cutout;S.showReference=true;S.setupStage=1;S.anchorSet=false;setMode('setup');
+    $('guideStatus').textContent='Outline-based suggestions only—not a trained seam detector. Correct in order: neckline center, left shoulder, right shoulder.';
+    toast('Suggested points ready. Tap the three landmarks in order to correct them.');
+  }catch(e){S.landmarks=[];S.setupStage=1;S.anchorSet=false;setMode('setup');$('guideStatus').textContent='Suggestions failed. Mark neckline center, left shoulder, and right shoulder manually.';toast('Could not suggest points; use manual marking.');}
+  finally{btn.disabled=false;btn.textContent='Auto-find T-shirt landmarks';}
+}
+$('autoDetect').addEventListener('click',autoDetectTshirtLandmarks);
 
 $('anchorLock').addEventListener('click',()=>{
   if(!S.anchorLocked&&!S.anchorSet){
@@ -998,17 +999,13 @@ $('anchorLock').addEventListener('click',()=>{
     setMode('move');
   }
 
-  $('anchorLock').textContent=S.anchorLocked
-    ?'Unlock collar & center anchors'
-    :'Lock collar & center anchors';
+  $('anchorLock').textContent=S.anchorLocked?'Unlock T-shirt landmarks':'Lock T-shirt landmarks';
 
   $('anchorLock').setAttribute('aria-pressed',String(S.anchorLocked));
   $('anchorLock').classList.toggle('primary',S.anchorLocked);
   $('anchorLock').classList.toggle('secondary',!S.anchorLocked);
 
-  $('anchorLockNote').textContent=S.anchorLocked
-    ?'Collar and center anchor references are locked against re-marking. Shirt tracking remains active and follows garment movement. Tap once to unlock. This lock resets when you reload the page.'
-    :'Anchor lock is off. You can re-mark the collar and center anchors. Tracking follows the shirt whenever anchors are set.';
+  $('anchorLockNote').textContent=S.anchorLocked?'Neckline and shoulder points are locked against re-marking. Tracking remains active.':'Lock the neckline and shoulder points after checking them.';
 
   toast(S.anchorLocked
     ?'Collar and center anchors locked. Tracking remains active.'
@@ -1082,107 +1079,29 @@ function patchScore(f,t,cx,cy,stride=2){
 }
 
 function captureTrackingTemplate(){
-  const source=bg();
-  if(!source)return;
-  const f=trackingFrame(source);
-  if(!f){
-    toast('Tracking needs camera image access.');
-    return;
-  }
-
-  const t=makePatch(f,S.centerX*.5,S.collarY*.5,36,36);
-  if(t.texture<2){
-    $('guideStatus').textContent='This anchor has too little visual detail. Mark near the collar seam, label, or stitching for more reliable tracking.';
-    S.anchorSet=false;
-    return;
-  }
-
-  S.trackingTemplate=t;
-  S.anchorSet=true;
-  S.trackLost=false;
-  S.trackConfidence=1;
-  S.trackPoint={x:S.centerX*.5,y:S.collarY*.5};
-  S.trackVelocity={x:0,y:0};
-  S.trackMisses=0;
-  S.lastTrackAt=0;
-  $('guideStatus').textContent='Tracking anchor captured. Matching now uses local image gradients and confidence checks; use the ghost guide if tracking drops.';
+  const source=bg();if(!source||!S.landmarks||S.landmarks.length<3||S.landmarks.some(p=>!p))return;
+  const f=trackingFrame(source);if(!f){toast('Tracking needs camera image access.');return;}
+  const ts=S.landmarks.map(p=>makePatch(f,p.x*.5,p.y*.5,30,30));
+  if(ts.some(t=>t.texture<1.5)){$('guideStatus').textContent='Some points have too little visual detail. Re-mark near visible collar or stitching.';S.anchorSet=false;return;}
+  S.trackingTemplates=ts;S.trackingTemplate=ts[0];S.trackPoints=S.landmarks.map(p=>({x:p.x*.5,y:p.y*.5}));S.anchorSet=true;S.trackLost=false;S.trackConfidence=1;S.trackMisses=0;S.lastTrackAt=0;
+  $('guideStatus').textContent='Three landmark patches captured. Tracking pauses when matches are unreliable.';
 }
-
 function trackAnchor(source){
-  if(!source||!S.trackingTemplate||performance.now()-S.lastTrackAt<85)return;
-  S.lastTrackAt=performance.now();
-
-  const f=trackingFrame(source);
-  if(!f)return;
-
-  const scale=.5,t=S.trackingTemplate;
-  const point=S.trackPoint||{x:S.centerX*scale,y:S.collarY*scale};
-  const predX=point.x+(S.trackVelocity?.x||0),predY=point.y+(S.trackVelocity?.y||0);
-  const rad=Math.min(100,32+Math.min(S.trackMisses||0,4)*12);
-
-  let best={score:Infinity,x:predX,y:predY},second=Infinity;
-  const minX=t.w/2+2,maxX=f.w-t.w/2-2,minY=t.h/2+2,maxY=f.h-t.h/2-2;
-
-  const scan=(cx,cy,r,step,stride)=>{
-    for(let y=Math.max(minY,cy-r);y<=Math.min(maxY,cy+r);y+=step){
-      for(let x=Math.max(minX,cx-r);x<=Math.min(maxX,cx+r);x+=step){
-        const score=patchScore(f,t,x,y,stride);
-        if(score<best.score){
-          second=best.score;
-          best={score,x,y};
-        }else if(Math.hypot(x-best.x,y-best.y)>t.w*.65&&score<second){
-          second=score;
-        }
-      }
-    }
-  };
-
-  scan(predX,predY,rad,4,3);
-  scan(best.x,best.y,5,1,2);
-
-  let refined={...best};
-  for(const [dx,dy] of [[-.5,0],[.5,0],[0,-.5],[0,.5],[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]]){
-    const x=best.x+dx,y=best.y+dy,score=patchScore(f,t,x,y,1);
-    if(score<refined.score)refined={x,y,score};
+  if(!source||!S.trackingTemplates?.length||performance.now()-S.lastTrackAt<100)return;
+  S.lastTrackAt=performance.now();const f=trackingFrame(source);if(!f)return;
+  const points=S.trackPoints||S.landmarks.map(p=>({x:p.x*.5,y:p.y*.5})),found=[];
+  for(let i=0;i<S.trackingTemplates.length;i++){
+    const t=S.trackingTemplates[i],p=points[i];let best={score:Infinity,x:p.x,y:p.y},rad=Math.min(48,18+Math.min(S.trackMisses||0,3)*8);
+    for(let y=Math.max(t.h/2+2,p.y-rad);y<=Math.min(f.h-t.h/2-2,p.y+rad);y+=3)for(let x=Math.max(t.w/2+2,p.x-rad);x<=Math.min(f.w-t.w/2-2,p.x+rad);x+=3){const score=patchScore(f,t,x,y,3);if(score<best.score)best={x,y,score};}
+    found.push(best);
   }
-
-  const uniqueness=Number.isFinite(second)?clamp((second-refined.score)/Math.max(.08,second),0,1):0;
-  const quality=clamp(1-refined.score/1.15,0,1);
-  S.trackConfidence=quality*(.68+.32*uniqueness);
-
-  if(refined.score<.78&&quality>.25&&uniqueness>.025){
-    const dx=(refined.x-point.x)/scale,dy=(refined.y-point.y)/scale,jump=Math.hypot(dx,dy);
-    if(jump<Math.min(120,rad/scale+24)){
-      const alpha=S.trackMisses?.48:.34,sx=dx*alpha,sy=dy*alpha;
-      S.centerX+=sx;
-      S.collarY+=sy;
-      S.design.x+=sx;
-      S.design.y+=sy;
-      S.trackVelocity={x:(refined.x-point.x)*.25,y:(refined.y-point.y)*.25};
-      S.trackPoint={x:point.x+(refined.x-point.x)*alpha,y:point.y+(refined.y-point.y)*alpha};
-      S.trackMisses=0;
-      S.trackLost=false;
-
-      if(performance.now()-S.lastTrackStatusAt>900){
-        $('guideStatus').textContent='Tracking shirt anchor · '+Math.round(S.trackConfidence*100)+'% confidence. Keep collar detail visible; the original ghost guide is available for recovery.';
-        S.lastTrackStatusAt=performance.now();
-      }
-    }else{
-      S.trackMisses=(S.trackMisses||0)+1;
-    }
-  }else{
-    S.trackMisses=(S.trackMisses||0)+1;
-    S.trackVelocity={
-      x:(S.trackVelocity?.x||0)*.35,
-      y:(S.trackVelocity?.y||0)*.35
-    };
-
-    if(!S.trackLost&&performance.now()-S.lastTrackStatusAt>700){
-      S.trackLost=true;
-      $('guideStatus').textContent='Tracking uncertain — overlay held steady to prevent a false jump. Align to the ghost guide or re-mark the collar anchor.';
-      S.lastTrackStatusAt=performance.now();
-    }
-  }
+  const shifts=found.map((p,i)=>({dx:(p.x-points[i].x)*2,dy:(p.y-points[i].y)*2,score:p.score})).filter(p=>p.score<.82);
+  if(shifts.length<2){S.trackMisses=(S.trackMisses||0)+1;if(!S.trackLost){S.trackLost=true;$('guideStatus').textContent='Tracking paused: landmark matches are uncertain. Re-align or correct the points.';}return;}
+  const dx=shifts.reduce((n,p)=>n+p.dx,0)/shifts.length,dy=shifts.reduce((n,p)=>n+p.dy,0)/shifts.length,spread=Math.sqrt(shifts.reduce((n,p)=>n+(p.dx-dx)**2+(p.dy-dy)**2,0)/shifts.length);
+  if(spread>18||Math.hypot(dx,dy)>70){S.trackMisses=(S.trackMisses||0)+1;if(!S.trackLost){S.trackLost=true;$('guideStatus').textContent='Tracking paused: landmarks disagree. Check alignment and points.';}return;}
+  const alpha=S.trackMisses?.45:.38,sx=dx*alpha,sy=dy*alpha;S.landmarks=S.landmarks.map(p=>({x:p.x+sx,y:p.y+sy}));S.centerX+=sx;S.collarY+=sy;S.design.x+=sx;S.design.y+=sy;
+  S.trackPoints=found.map((p,i)=>({x:points[i].x+(p.x-points[i].x)*alpha,y:points[i].y+(p.y-points[i].y)*alpha}));S.trackConfidence=clamp(1-shifts.reduce((n,p)=>n+p.score,0)/shifts.length,0,1);S.trackMisses=0;S.trackLost=false;
+  if(performance.now()-S.lastTrackStatusAt>1000){$('guideStatus').textContent='Tracking neckline and shoulders · relative match score '+Math.round(S.trackConfidence*100)+'%. Camera angle changes may affect placement.';S.lastTrackStatusAt=performance.now();}
 }
 
 // Manual erase/restore edits operate on a full-resolution editable artwork canvas.
