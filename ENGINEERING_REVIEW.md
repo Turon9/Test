@@ -128,3 +128,23 @@ These are proposed test definitions, **not achieved results**.
 - Manual reset clears calibration state and points.
 
 These changes improve failure signaling only. They do **not** improve the underlying tracker to full-garment pose estimation, remove perspective distortion, or establish physical accuracy. Those require the benchmark and subsequent architecture phases above.
+
+## T-shirt landmark AI implementation gate
+
+The requested UX is automatic detection first, with manual correction. The current repository does not contain a verified flat-lay T-shirt landmark model or model weights. Do not label a classical image heuristic as AI and do not substitute a human-pose model without validation: flat-lay garments often contain no human body, and neckline/shoulder seam visibility varies by cut, color, folds, and lighting.
+
+### Required model contract
+- Input: normalized RGB crop of the shirt, preserving a mapping back to source-frame coordinates.
+- Outputs: neckline center, left shoulder seam point, right shoulder seam point, per-landmark confidence, and optionally a garment/neckline heatmap.
+- Model metadata: version, input dimensions, coordinate convention, training/evaluation dataset provenance, license, and supported garment styles.
+- Runtime: browser-compatible inference (for example, ONNX Runtime Web or TensorFlow.js), with model loading failures handled explicitly and no server requirement.
+- Post-processing: reject low-confidence or geometrically inconsistent landmarks; permit operator drag-to-correct; use the corrected landmarks to initialize geometric tracking.
+- Fallback: when detection fails, keep the existing manual setup workflow. Never fabricate a landmark or report a successful detection without model output.
+
+### Model acceptance tests
+- Evaluate on a held-out dataset of flat-lay T-shirts covering crew necks, V-necks, dark/light colors, low-contrast seams, wrinkles, varied lighting, and partial occlusion.
+- Measure each landmark's pixel error normalized by shoulder width, detection success rate, false-detection rate, confidence calibration, initialization latency, and browser memory.
+- Freeze the model and thresholds before the final held-out evaluation. The dataset must contain annotated ground-truth points and separate training/validation/test splits.
+- Initially support crew-neck T-shirts if broader styles do not meet the measured gate. Show manual correction whenever confidence is below the threshold chosen from validation data.
+
+Until a compatible model and annotated evaluation set are available, the project can implement the landmark UI, model-loading contract, geometry checks, and manual fallback, but it cannot honestly claim that AI landmark detection has been implemented or validated.
